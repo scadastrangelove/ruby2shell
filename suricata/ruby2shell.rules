@@ -1,0 +1,43 @@
+# ------------------------------------------------------------------------
+# CyberOK — ruby2shell defense tools (CVE-2026-132825, Ruby security release
+# 2026-11-18: 3.3.14 / 3.4.13 / 4.0.10)
+#
+# (c) 2026 АО «Сайбер ОК» / JSC CyberOK
+# Материал предоставляется исключительно для ознакомительных и исследовательских целей.
+# Копирование, переработка, распространение, переопубликация и использование материала
+# полностью или частично в коммерческих целях, включая создание и продвижение
+# конкурирующих продуктов, запрещены без предварительного письменного разрешения
+# правообладателя.
+#
+# Provided for informational and research purposes only. Copying, modification,
+# distribution, republication, and use of this material in whole or in part for
+# commercial purposes, including the creation and promotion of competing products,
+# is prohibited without the prior written permission of the copyright holder.
+# ------------------------------------------------------------------------
+
+# ruby2shell — CVE-2026-132825 / GHSA-34m4-m9fh-gqp5
+# One-byte heap buffer overflow in Ruby string case conversion for the
+# single-byte encodings ISO-8859-{1,2,3,4,9,10,13,14,15,16} and
+# Windows-125{0,2,4,7}. Fixed in Ruby 3.3.14 / 3.4.13 / 4.0.10 (2026-11-18).
+#
+# Suricata 7, alert-only, SIDs 2202611001-2202611003. The rules inspect
+# multipart form data: a part that declares an affected charset and carries
+# enough sharp-s (0xDF) bytes to overflow the case-conversion buffer.
+# Charset matching covers every name Ruby accepts for these encodings,
+# case-insensitively. Validated in our lab with Suricata 7.0.3 against
+# confirmed trigger traffic and benign traffic.
+#
+# http.request_body is inspected only up to libhtp request-body-limit
+# (100 KB by default); see README for sizing.
+# Suricata 7.0.3 parser notes: no literal `;` or `$` inside pcre values
+# (use \x3b / \b), and no relative distance/within after the field-name match.
+
+# Primary: the method-override form field.
+alert http $EXTERNAL_NET any -> $HOME_NET any (msg:"RUBY2SHELL CVE-2026-132825 Rack MethodOverride _method charset case-map heap overflow attempt"; flow:established,to_server; http.method; content:"POST"; http.request_body; content:"_method"; nocase; pcre:"/name\s*=\s*\x22?_method(?:\x22|\s|\x3b|\r)/i"; content:"charset"; nocase; fast_pattern; pcre:"/charset\s*=\s*\x22?(?:(?:windows-|cp)125[0247]|iso-?8859-(?:1|2|3|4|9|10|13|14|15|16))\b[^\r\n]*\r\n(?:[^\r\n]+\r\n)*\r\n(?:(?:(?!\r\n--)[^\xdf])*+\xdf){21}/is"; classtype:attempted-admin; reference:cve,2026-132825; reference:url,https://www.ruby-lang.org/en/news/2026/11/18/multiple-vulnerabilities-in-regexp-and-string/; sid:2202611001; rev:5;)
+
+# Generic: any form field (application-level case conversion).
+alert http $EXTERNAL_NET any -> $HOME_NET any (msg:"RUBY2SHELL CVE-2026-132825 multipart affected-charset part with >=21 sharp-s (any param)"; flow:established,to_server; http.method; content:"POST"; http.header; content:"multipart/form-data"; nocase; http.request_body; content:"charset"; nocase; fast_pattern; pcre:"/charset\s*=\s*\x22?(?:(?:windows-|cp)125[0247]|iso-?8859-(?:1|2|3|4|9|10|13|14|15|16))\b[^\r\n]*\r\n(?:[^\r\n]+\r\n)*\r\n(?:(?:(?!\r\n--)[^\xdf])*+\xdf){21}/is"; classtype:attempted-admin; reference:cve,2026-132825; sid:2202611002; rev:5;)
+
+# Context: a text part declaring an affected single-byte charset (low
+# confidence, volume-dependent; rules 1-2 are primary).
+alert http $EXTERNAL_NET any -> $HOME_NET any (msg:"RUBY2SHELL CVE-2026-132825 multipart part declares affected single-byte charset"; flow:established,to_server; http.method; content:"POST"; http.request_body; content:"charset"; nocase; pcre:"/content-type\s*:\s*text\/plain\s*(?:\x3b[^\r\n\x3b]*)*?\x3b\s*charset\s*=\s*\x22?(?:(?:windows-|cp)125[0247]|iso-?8859-(?:1|2|3|4|9|10|13|14|15|16))\b/i"; classtype:attempted-admin; reference:cve,2026-132825; sid:2202611003; rev:5;)
